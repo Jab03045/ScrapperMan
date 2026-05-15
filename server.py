@@ -69,61 +69,71 @@ EXEC_PROFILES = [
     "https://www.linkedin.com/in/jonathanadashek",
 ]
 
-def start_apify_run(days_back: int = 30, max_posts: int = 10) -> str:
+def start_apify_run(days_back: int = 30, max_posts: int = 10, emit=None) -> str:
     """Start the Apify actor and return the run ID."""
+    emit(f"  Actor ID:      {APIFY_ACTOR_ID}")
+    emit(f"  Profiles:      {len(EXEC_PROFILES)} IBM exec profiles")
+    emit(f"  Search terms:  IBM AI, IBM Think, agentic enterprise, hybrid cloud")
+    emit(f"  Date range:    last {days_back} days")
+    emit(f"  Max posts:     {max_posts} per profile")
+
     url = f"https://api.apify.com/v2/acts/{APIFY_ACTOR_ID}/runs"
     payload = {
-        "targetUrls":   EXEC_PROFILES,
+        "targetUrls":    EXEC_PROFILES,
         "searchQueries": ["IBM AI", "IBM consulting", "IBM Think", "agentic enterprise", "hybrid cloud"],
-        "sortBy":       "date",
-        "postedLimit":  f"{days_back * 24}h" if days_back <= 7 else "month",
-        "maxPosts":     max_posts,
+        "sortBy":        "date",
+        "postedLimit":   f"{days_back * 24}h" if days_back <= 7 else "month",
+        "maxPosts":      max_posts,
     }
-    r = requests.post(
-        url,
-        params={"token": APIFY_TOKEN},
-        json=payload,
-        timeout=30,
-    )
+    r = requests.post(url, params={"token": APIFY_TOKEN}, json=payload, timeout=30)
     r.raise_for_status()
-    return r.json()["data"]["id"]
+    run_id = r.json()["data"]["id"]
+    emit(f"  ✓ Apify run created: {run_id}")
+    emit(f"  View at: https://console.apify.com/actors/{APIFY_ACTOR_ID}/runs/{run_id}")
+    return run_id
 
 
 def poll_apify_run(run_id: str, emit, poll_interval: int = 15) -> str:
     """Poll until the run finishes. Returns dataset ID."""
     url = f"https://api.apify.com/v2/actor-runs/{run_id}"
+    elapsed = 0
+    emit("  Polling every 15 seconds...")
     while True:
         r = requests.get(url, params={"token": APIFY_TOKEN}, timeout=15)
         r.raise_for_status()
-        data   = r.json()["data"]
-        status = data["status"]
-        emit(f"Apify run status: {status}")
+        data    = r.json()["data"]
+        status  = data["status"]
+        stats   = data.get("stats", {})
+        n_items = stats.get("outputDatasetItems", 0)
+
+        emit(f"  [{elapsed:>3}s] status={status}  posts_scraped={n_items}")
 
         if status == "SUCCEEDED":
-            return data["defaultDatasetId"]
+            dataset_id = data["defaultDatasetId"]
+            emit(f"  ✓ Scraper finished — {n_items} posts collected")
+            emit(f"  Dataset ID: {dataset_id}")
+            return dataset_id
         elif status in ("FAILED", "ABORTED", "TIMED-OUT"):
-            raise RuntimeError(f"Apify run {status}: {run_id}")
+            raise RuntimeError(f"Apify run {status} — check https://console.apify.com/actors/{APIFY_ACTOR_ID}/runs/{run_id}")
 
         time.sleep(poll_interval)
+        elapsed += poll_interval
 
 
 def download_csv(dataset_id: str, emit) -> str:
     """Download the Apify dataset as CSV and return the local file path."""
-    emit("Downloading CSV from Apify ...")
+    emit(f"  Dataset URL: https://api.apify.com/v2/datasets/{dataset_id}/items")
     url = f"https://api.apify.com/v2/datasets/{dataset_id}/items"
-    r = requests.get(
-        url,
-        params={"token": APIFY_TOKEN, "format": "csv", "flatten": "1"},
-        timeout=60,
-    )
+    r = requests.get(url, params={"token": APIFY_TOKEN, "format": "csv", "flatten": "1"}, timeout=60)
     r.raise_for_status()
 
     tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
     tmp.write(r.content)
     tmp.close()
 
-    row_count = r.content.count(b"\n")
-    emit(f"Downloaded CSV — ~{row_count} rows")
+    size_kb    = len(r.content) / 1024
+    row_count  = r.content.count(b"\n") - 1
+    emit(f"  ✓ Downloaded {row_count} rows ({size_kb:.1f} KB) → {tmp.name}")
     return tmp.name
 
 
@@ -173,41 +183,65 @@ def run_full_pipeline(days_back: int, max_posts: int):
     try:
         pipeline_state["running"] = True
         pipeline_state["last_run"] = datetime.now(timezone.utc).isoformat()
-        emit("=" * 50)
-        emit("IBM Executive Intelligence Pipeline — starting")
-        emit(f"Settings: {days_back} days back, {max_posts} posts per profile")
-        emit("=" * 50)
+        emit("━" * 50)
+        emit("IBM Executive Intelligence Pipeline")
+        emit(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        emit(f"Settings: {days_back} days back  |  {max_posts} max posts per profile")
+        emit("━" * 50)
 
-        # Step 1 — start Apify
-        emit("Step 1/4 — Starting Apify scraper ...")
-        run_id = start_apify_run(days_back, max_posts)
-        emit(f"Apify run started: {run_id}")
+        # ── Step 1: Apify scraper ─────────────────────────────────────────
+        emit("")
+        emit("STEP 1/4 — Scraping LinkedIn posts via Apify")
+        emit("─" * 40)
+        run_id = start_apify_run(days_back, max_posts, emit)
 
-        # Step 2 — poll until done
-        emit("Step 2/4 — Waiting for Apify to finish (this takes ~5-15 min) ...")
+        # ── Step 2: Poll until done ───────────────────────────────────────
+        emit("")
+        emit("STEP 2/4 — Waiting for Apify scraper to finish")
+        emit("─" * 40)
+        emit("  This usually takes 5–15 minutes depending on post volume.")
+        emit("  You can also watch progress at console.apify.com")
         dataset_id = poll_apify_run(run_id, emit)
-        emit(f"Apify done. Dataset: {dataset_id}")
 
-        # Step 3 — download CSV and process
-        emit("Step 3/4 — Downloading and processing CSV ...")
+        # ── Step 3: Download + process ────────────────────────────────────
+        emit("")
+        emit("STEP 3/4 — Downloading CSV and processing content")
+        emit("─" * 40)
+        emit("  Downloading CSV from Apify ...")
         csv_path = download_csv(dataset_id, emit)
+        emit("  Starting content processing:")
+        emit("    • Text posts  → saved as-is")
+        emit("    • Articles    → fetched via Jina Reader")
+        emit("    • Videos      → downloaded + transcribed via Groq Whisper")
+        emit("    • Reposts     → attributed by exec role (featured/mentioned/amplified)")
+        emit("")
         try:
             transcripts = run_pipeline(csv_path, GROQ_API_KEY, emit)
         finally:
             Path(csv_path).unlink(missing_ok=True)
 
-        # Step 4 — push to Cloudflare
-        emit("Step 4/4 — Uploading to Cloudflare Pages ...")
+        # ── Step 4: Push to Cloudflare ────────────────────────────────────
+        emit("")
+        emit("STEP 4/4 — Publishing to Cloudflare Pages")
+        emit("─" * 40)
         public_url = push_to_cloudflare(transcripts, emit)
 
-        emit("=" * 50)
-        emit(f"Pipeline complete — {transcripts['count']} records published")
-        emit(f"Dashboard URL: https://{CF_PROJECT_NAME}.pages.dev/transcripts.json")
-        emit("=" * 50)
+        # ── Done ──────────────────────────────────────────────────────────
+        emit("")
+        emit("━" * 50)
+        emit("✓ PIPELINE COMPLETE")
+        emit(f"  Records published:  {transcripts['count']}")
+        emit(f"  Finished at:        {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        emit(f"  Live JSON:          https://{CF_PROJECT_NAME}.pages.dev/transcripts.json")
+        emit("━" * 50)
+        emit("  In Claude: say 'refresh dashboard' to load the new data.")
         pipeline_state["last_status"] = "success"
 
     except Exception as e:
-        emit(f"ERROR: {e}")
+        emit("")
+        emit("━" * 50)
+        emit(f"✗ PIPELINE FAILED: {e}")
+        emit("━" * 50)
         log.exception("Pipeline failed")
         pipeline_state["last_status"] = "error"
 
@@ -306,10 +340,11 @@ def index():
 
   <script>
     function colorize(line) {{
-      if (line.includes("ERROR") || line.includes("✗")) return `<span class="err">${{line}}</span>`;
-      if (line.includes("✓") || line.includes("complete") || line.includes("Published")) return `<span class="ok">${{line}}</span>`;
-      if (line.includes("Step") || line.includes("===")) return `<span class="info">${{line}}</span>`;
-      if (line.includes("status:") || line.includes("[0")) return `<span class="dim">${{line}}</span>`;
+      if (line.includes("✗") || line.includes("FAILED") || line.includes("ERROR")) return `<span class="err">${{line}}</span>`;
+      if (line.includes("✓") || line.includes("COMPLETE") || line.includes("Published")) return `<span class="ok">${{line}}</span>`;
+      if (line.startsWith("[") && line.includes("] STEP")) return `<span class="info" style="font-weight:bold">${{line}}</span>`;
+      if (line.includes("STEP ") || line.includes("━") || line.includes("─")) return `<span class="info">${{line}}</span>`;
+      if (line.includes("status=") || line.includes("[still")) return `<span class="dim">${{line}}</span>`;
       return line;
     }}
 
@@ -321,24 +356,38 @@ def index():
 
       btn.disabled = true;
       btn.textContent = "⏳ Pipeline running...";
-      box.innerHTML = "";
+      box.innerHTML = "<span style='color:#4b5563'>Starting pipeline...</span>\n";
 
       fetch(`/run?days=${{days}}&posts=${{posts}}`, {{ method: "POST" }})
-        .then(r => {{ if (!r.ok) throw new Error("Failed to start pipeline"); }})
-        .catch(e => {{ box.innerHTML = `<span class="err">Error: ${{e.message}}</span>`; btn.disabled = false; }});
-
-      const es = new EventSource("/logs");
-      es.onmessage = (e) => {{
-        if (e.data === "__DONE__") {{
-          es.close();
+        .then(r => {{
+          if (!r.ok) throw new Error("Failed to start pipeline");
+          return r.json();
+        }})
+        .then(() => {{
+          // Only open SSE stream AFTER /run confirms it started
+          box.innerHTML = "";
+          const es = new EventSource("/logs");
+          es.onmessage = (e) => {{
+            if (e.data === "__DONE__") {{
+              es.close();
+              btn.disabled = false;
+              btn.textContent = "▶ Run pipeline";
+              return;
+            }}
+            box.innerHTML += colorize(e.data) + "\\n";
+            box.scrollTop = box.scrollHeight;
+          }};
+          es.onerror = () => {{
+            es.close();
+            btn.disabled = false;
+            btn.textContent = "▶ Run pipeline";
+          }};
+        }})
+        .catch(e => {{
+          box.innerHTML = `<span class="err">Error: ${{e.message}}</span>`;
           btn.disabled = false;
           btn.textContent = "▶ Run pipeline";
-          return;
-        }}
-        box.innerHTML += colorize(e.data) + "\\n";
-        box.scrollTop = box.scrollHeight;
-      }};
-      es.onerror = () => {{ es.close(); btn.disabled = false; btn.textContent = "▶ Run pipeline"; }};
+        }});
     }}
   </script>
 </body>
