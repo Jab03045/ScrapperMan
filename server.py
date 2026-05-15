@@ -256,79 +256,56 @@ def run_full_pipeline(days_back: int, max_posts: int):
 @app.route("/")
 def index():
     last_run    = pipeline_state.get("last_run") or "Never"
-    last_status = pipeline_state.get("last_status") or "—"
+    last_status = pipeline_state.get("last_status") or "-"
     running     = pipeline_state["running"]
-
     status_color = {"success": "#22c55e", "error": "#ef4444"}.get(last_status, "#888")
+    running_badge = "<span class='running-badge'>RUNNING</span>" if running else ""
+    btn_disabled  = "disabled" if running else ""
+    btn_text      = "Pipeline running..." if running else "Run pipeline"
 
-    return f"""<!DOCTYPE html>
+    html = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IBM Intelligence Pipeline</title>
   <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ background: #0a0a0f; color: #e5e7eb; font-family: 'DM Mono', monospace; padding: 2rem; }}
-    h1 {{ font-size: 1.4rem; color: #fff; margin-bottom: 0.25rem; letter-spacing: -0.02em; }}
-    .subtitle {{ color: #6b7280; font-size: 0.8rem; margin-bottom: 2rem; }}
-    .card {{ background: #13131a; border: 1px solid #1f2937; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }}
-    label {{ display: block; font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.4rem; }}
-    input[type=number], select {{
-      background: #0a0a0f; border: 1px solid #374151; border-radius: 6px;
-      color: #e5e7eb; padding: 0.5rem 0.75rem; font-size: 0.85rem;
-      font-family: inherit; width: 180px;
-    }}
-    .row {{ display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }}
-    button {{
-      background: #4f8ef7; color: #fff; border: none; border-radius: 8px;
-      padding: 0.65rem 1.5rem; font-size: 0.9rem; font-family: inherit;
-      cursor: pointer; transition: background 0.15s;
-    }}
-    button:hover {{ background: #3b7de8; }}
-    button:disabled {{ background: #374151; color: #6b7280; cursor: not-allowed; }}
-    .status-row {{ display: flex; gap: 2rem; font-size: 0.8rem; color: #9ca3af; margin-top: 1rem; }}
-    .status-row span {{ color: #e5e7eb; }}
-    .status-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: {status_color}; margin-right: 6px; }}
-    #log-box {{
-      background: #0a0a0f; border: 1px solid #1f2937; border-radius: 8px;
-      padding: 1rem; height: 420px; overflow-y: auto;
-      font-size: 0.75rem; line-height: 1.7; color: #9ca3af;
-      white-space: pre-wrap; word-break: break-all;
-    }}
-    #log-box .ok   {{ color: #22c55e; }}
-    #log-box .err  {{ color: #ef4444; }}
-    #log-box .info {{ color: #4f8ef7; }}
-    #log-box .dim  {{ color: #4b5563; }}
-    .running-badge {{
-      display: inline-block; background: #1e3a5f; color: #4f8ef7;
-      font-size: 0.7rem; padding: 2px 10px; border-radius: 20px; margin-left: 0.75rem;
-      animation: pulse 1.5s infinite;
-    }}
-    @keyframes pulse {{ 0%,100% {{ opacity:1 }} 50% {{ opacity:0.4 }} }}
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0f; color: #e5e7eb; font-family: 'DM Mono', monospace; padding: 2rem; }
+    h1 { font-size: 1.4rem; color: #fff; margin-bottom: 0.25rem; }
+    .subtitle { color: #6b7280; font-size: 0.8rem; margin-bottom: 2rem; }
+    .card { background: #13131a; border: 1px solid #1f2937; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    label { display: block; font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.4rem; }
+    input[type=number] { background: #0a0a0f; border: 1px solid #374151; border-radius: 6px; color: #e5e7eb; padding: 0.5rem 0.75rem; font-size: 0.85rem; font-family: inherit; width: 180px; }
+    .row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    button { background: #4f8ef7; color: #fff; border: none; border-radius: 8px; padding: 0.65rem 1.5rem; font-size: 0.9rem; font-family: inherit; cursor: pointer; transition: background 0.15s; }
+    button:hover { background: #3b7de8; }
+    button:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .status-row { display: flex; gap: 2rem; font-size: 0.8rem; color: #9ca3af; margin-top: 1rem; }
+    .status-row span { color: #e5e7eb; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: STATUS_COLOR; }
+    #log-box { background: #0a0a0f; border: 1px solid #1f2937; border-radius: 8px; padding: 1rem; height: 420px; overflow-y: auto; font-size: 0.75rem; line-height: 1.7; color: #9ca3af; white-space: pre-wrap; word-break: break-all; }
+    #log-box .ok  { color: #22c55e; }
+    #log-box .err { color: #ef4444; }
+    #log-box .inf { color: #4f8ef7; }
+    #log-box .dim { color: #4b5563; }
+    .running-badge { display: inline-block; background: #1e3a5f; color: #4f8ef7; font-size: 0.7rem; padding: 2px 10px; border-radius: 20px; margin-left: 0.75rem; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
   </style>
 </head>
 <body>
-  <h1>IBM Executive Intelligence Pipeline {"<span class='running-badge'>RUNNING</span>" if running else ""}</h1>
-  <p class="subtitle">Scrape → Transcribe → Publish to Cloudflare Pages</p>
+  <h1>IBM Executive Intelligence Pipeline RUNNING_BADGE</h1>
+  <p class="subtitle">Scrape -> Transcribe -> Publish to Cloudflare Pages</p>
 
   <div class="card">
     <div class="row">
-      <div>
-        <label>Days back</label>
-        <input type="number" id="days" value="30" min="1" max="180">
-      </div>
-      <div>
-        <label>Max posts per profile</label>
-        <input type="number" id="posts" value="10" min="1" max="50">
-      </div>
+      <div><label>Days back</label><input type="number" id="days" value="30" min="1" max="180"></div>
+      <div><label>Max posts per profile</label><input type="number" id="posts" value="10" min="1" max="50"></div>
     </div>
-    <button id="run-btn" onclick="startPipeline()" {"disabled" if running else ""}>
-      {"⏳ Pipeline running..." if running else "▶ Run pipeline"}
-    </button>
+    <button id="run-btn" onclick="startPipeline()" BTN_DISABLED>BTN_TEXT</button>
     <div class="status-row">
-      <div>Last run: <span>{last_run}</span></div>
-      <div>Status: <span><span class="status-dot"></span>{last_status}</span></div>
+      <div>Last run: <span>LAST_RUN</span></div>
+      <div>Status: <span><span class="status-dot"></span>LAST_STATUS</span></div>
     </div>
   </div>
 
@@ -338,59 +315,65 @@ def index():
   </div>
 
   <script>
-    function colorize(line) {{
-      if (line.includes("✗") || line.includes("FAILED") || line.includes("ERROR")) return `<span class="err">${{line}}</span>`;
-      if (line.includes("✓") || line.includes("COMPLETE") || line.includes("Published")) return `<span class="ok">${{line}}</span>`;
-      if (line.startsWith("[") && line.includes("] STEP")) return `<span class="info" style="font-weight:bold">${{line}}</span>`;
-      if (line.includes("STEP ") || line.includes("===") || line.includes("---")) return `<span class="info">${{line}}</span>`;
-      if (line.includes("status=") || line.includes("[still")) return `<span class="dim">${{line}}</span>`;
+    function colorize(line) {
+      if (line.includes("FAILED") || line.includes("ERROR")) return '<span class="err">' + line + '</span>';
+      if (line.includes("COMPLETE") || line.includes("Published") || line.includes("finished")) return '<span class="ok">' + line + '</span>';
+      if (line.includes("STEP ") || line.includes("===") || line.includes("---")) return '<span class="inf">' + line + '</span>';
+      if (line.includes("status=") || line.includes("still running")) return '<span class="dim">' + line + '</span>';
       return line;
-    }}
+    }
 
-    function startPipeline() {{
-      const days  = document.getElementById("days").value;
-      const posts = document.getElementById("posts").value;
-      const btn   = document.getElementById("run-btn");
-      const box   = document.getElementById("log-box");
+    function startPipeline() {
+      var days  = document.getElementById("days").value;
+      var posts = document.getElementById("posts").value;
+      var btn   = document.getElementById("run-btn");
+      var box   = document.getElementById("log-box");
 
       btn.disabled = true;
-      btn.textContent = "⏳ Pipeline running...";
-      box.innerHTML = "<span style='color:#4b5563'>Starting pipeline...</span>\n";
+      btn.textContent = "Pipeline running...";
+      box.innerHTML = "Starting pipeline...\\n";
 
-      fetch(`/run?days=${{days}}&posts=${{posts}}`, {{ method: "POST" }})
-        .then(r => {{
-          if (!r.ok) throw new Error("Failed to start pipeline");
+      fetch("/run?days=" + days + "&posts=" + posts, { method: "POST" })
+        .then(function(r) {
+          if (!r.ok) throw new Error("Failed to start: " + r.status);
           return r.json();
-        }})
-        .then(() => {{
-          // Only open SSE stream AFTER /run confirms it started
+        })
+        .then(function() {
           box.innerHTML = "";
-          const es = new EventSource("/logs");
-          es.onmessage = (e) => {{
-            if (e.data === "__DONE__") {{
+          var es = new EventSource("/logs");
+          es.onmessage = function(e) {
+            if (e.data === "__DONE__") {
               es.close();
               btn.disabled = false;
-              btn.textContent = "▶ Run pipeline";
+              btn.textContent = "Run pipeline";
               return;
-            }}
+            }
             box.innerHTML += colorize(e.data) + "\\n";
             box.scrollTop = box.scrollHeight;
-          }};
-          es.onerror = () => {{
+          };
+          es.onerror = function() {
             es.close();
             btn.disabled = false;
-            btn.textContent = "▶ Run pipeline";
-          }};
-        }})
-        .catch(e => {{
-          box.innerHTML = `<span class="err">Error: ${{e.message}}</span>`;
+            btn.textContent = "Run pipeline";
+          };
+        })
+        .catch(function(e) {
+          box.innerHTML = '<span class="err">Error: ' + e.message + '</span>';
           btn.disabled = false;
-          btn.textContent = "▶ Run pipeline";
-        }});
-    }}
+          btn.textContent = "Run pipeline";
+        });
+    }
   </script>
 </body>
 </html>"""
+
+    html = html.replace("STATUS_COLOR", status_color)
+    html = html.replace("RUNNING_BADGE", running_badge)
+    html = html.replace("BTN_DISABLED", btn_disabled)
+    html = html.replace("BTN_TEXT", btn_text)
+    html = html.replace("LAST_RUN", last_run)
+    html = html.replace("LAST_STATUS", last_status)
+    return html
 
 
 @app.route("/run", methods=["POST"])
