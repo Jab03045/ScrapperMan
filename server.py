@@ -183,65 +183,64 @@ def run_full_pipeline(days_back: int, max_posts: int):
     try:
         pipeline_state["running"] = True
         pipeline_state["last_run"] = datetime.now(timezone.utc).isoformat()
-        emit("━" * 50)
+        emit("=" * 50)
         emit("IBM Executive Intelligence Pipeline")
         emit(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         emit(f"Settings: {days_back} days back  |  {max_posts} max posts per profile")
-        emit("━" * 50)
+        emit("=" * 50)
 
-        # ── Step 1: Apify scraper ─────────────────────────────────────────
+        # Step 1
         emit("")
-        emit("STEP 1/4 — Scraping LinkedIn posts via Apify")
-        emit("─" * 40)
+        emit("STEP 1/4 --- Scraping LinkedIn posts via Apify")
+        emit("-" * 40)
         run_id = start_apify_run(days_back, max_posts, emit)
 
-        # ── Step 2: Poll until done ───────────────────────────────────────
+        # Step 2
         emit("")
-        emit("STEP 2/4 — Waiting for Apify scraper to finish")
-        emit("─" * 40)
-        emit("  This usually takes 5–15 minutes depending on post volume.")
+        emit("STEP 2/4 --- Waiting for Apify scraper to finish")
+        emit("-" * 40)
+        emit("  This usually takes 5-15 minutes depending on post volume.")
         emit("  You can also watch progress at console.apify.com")
         dataset_id = poll_apify_run(run_id, emit)
 
-        # ── Step 3: Download + process ────────────────────────────────────
+        # Step 3
         emit("")
-        emit("STEP 3/4 — Downloading CSV and processing content")
-        emit("─" * 40)
+        emit("STEP 3/4 --- Downloading CSV and processing content")
+        emit("-" * 40)
         emit("  Downloading CSV from Apify ...")
         csv_path = download_csv(dataset_id, emit)
         emit("  Starting content processing:")
-        emit("    • Text posts  → saved as-is")
-        emit("    • Articles    → fetched via Jina Reader")
-        emit("    • Videos      → downloaded + transcribed via Groq Whisper")
-        emit("    • Reposts     → attributed by exec role (featured/mentioned/amplified)")
+        emit("    - Text posts  -> saved as-is")
+        emit("    - Articles    -> fetched via Jina Reader")
+        emit("    - Videos      -> downloaded + transcribed via Groq Whisper")
+        emit("    - Reposts     -> attributed by exec role (featured/mentioned/amplified)")
         emit("")
         try:
             transcripts = run_pipeline(csv_path, GROQ_API_KEY, emit)
         finally:
             Path(csv_path).unlink(missing_ok=True)
 
-        # ── Step 4: Push to Cloudflare ────────────────────────────────────
+        # Step 4
         emit("")
-        emit("STEP 4/4 — Publishing to Cloudflare Pages")
-        emit("─" * 40)
+        emit("STEP 4/4 --- Publishing to Cloudflare Pages")
+        emit("-" * 40)
         public_url = push_to_cloudflare(transcripts, emit)
 
-        # ── Done ──────────────────────────────────────────────────────────
         emit("")
-        emit("━" * 50)
-        emit("✓ PIPELINE COMPLETE")
+        emit("=" * 50)
+        emit("PIPELINE COMPLETE")
         emit(f"  Records published:  {transcripts['count']}")
         emit(f"  Finished at:        {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         emit(f"  Live JSON:          https://{CF_PROJECT_NAME}.pages.dev/transcripts.json")
-        emit("━" * 50)
+        emit("=" * 50)
         emit("  In Claude: say 'refresh dashboard' to load the new data.")
         pipeline_state["last_status"] = "success"
 
     except Exception as e:
         emit("")
-        emit("━" * 50)
-        emit(f"✗ PIPELINE FAILED: {e}")
-        emit("━" * 50)
+        emit("=" * 50)
+        emit(f"PIPELINE FAILED: {e}")
+        emit("=" * 50)
         log.exception("Pipeline failed")
         pipeline_state["last_status"] = "error"
 
@@ -343,7 +342,7 @@ def index():
       if (line.includes("✗") || line.includes("FAILED") || line.includes("ERROR")) return `<span class="err">${{line}}</span>`;
       if (line.includes("✓") || line.includes("COMPLETE") || line.includes("Published")) return `<span class="ok">${{line}}</span>`;
       if (line.startsWith("[") && line.includes("] STEP")) return `<span class="info" style="font-weight:bold">${{line}}</span>`;
-      if (line.includes("STEP ") || line.includes("━") || line.includes("─")) return `<span class="info">${{line}}</span>`;
+      if (line.includes("STEP ") || line.includes("===") || line.includes("---")) return `<span class="info">${{line}}</span>`;
       if (line.includes("status=") || line.includes("[still")) return `<span class="dim">${{line}}</span>`;
       return line;
     }}
